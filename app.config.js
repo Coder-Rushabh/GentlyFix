@@ -1,4 +1,4 @@
-{
+export default {
   "expo": {
     "name": "GentlyFix",
     "slug": "gentlyfix",
@@ -26,5 +26,13 @@
     "web": {
       "favicon": "./assets/favicon.png"
     }
-  }
+  },
+  "extra" :{
+    apiKey: "AIzaSyDQ-5xNGOCRWfyBXT9BUmO2G1MK1C9zn3c",
+  authDomain: "gently-fix.firebaseapp.com",
+  projectId: "gently-fix",
+  storageBucket: "gently-fix.appspot.com",
+  messagingSenderId: "469251427539",
+  appId: "1:469251427539:web:269522d37385e47613d826"
+}
 }
