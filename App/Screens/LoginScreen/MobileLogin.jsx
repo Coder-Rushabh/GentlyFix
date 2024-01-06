@@ -6,6 +6,12 @@ import { FirebaseRecaptchaVerifierModal, FirebaseRecaptchaBanner } from 'expo-fi
 
 const fbConfig = {
   // Your Firebase configuration goes here
+        apiKey: "AIzaSyDQ-5xNGOCRWfyBXT9BUmO2G1MK1C9zn3c",
+        authDomain: "gently-fix.firebaseapp.com",
+        projectId: "gently-fix",
+        storageBucket: "gently-fix.appspot.com",
+        messagingSenderId: "469251427539",
+        appId: "1:469251427539:web:269522d37385e47613d826",
   
 };
 
@@ -51,7 +57,7 @@ export default function MobileLogin({ navigation }) {
       const credential = PhoneAuthProvider.credential(verificationId, verificationCode);
       await signInWithCredential(auth, credential);
       setInfo('Success: Phone authentication successful');
-      navigation.navigate("Home"); // You need to have 'navigation' defined to use this line
+      navigation.navigate("Tabs"); // You need to have 'navigation' defined to use this line
     } catch (error) {
       setInfo(`Error : ${error.message}`);
     }
