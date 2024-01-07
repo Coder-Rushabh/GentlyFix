@@ -8,7 +8,9 @@ const Tab = createBottomTabNavigator();
 export default function Home() {
   return (
     <View>
+      {/* Header added */}
       <Header />
+
     </View>
   )
 }
