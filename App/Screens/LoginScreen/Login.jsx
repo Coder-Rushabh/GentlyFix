@@ -10,7 +10,7 @@ export default function Login({ navigation }) {
                 style={styles.loginImage}
             />
             <TouchableOpacity onPress={() =>
-                navigation.navigate('MobileLogin')
+                navigation.navigate('Tabs')
             }
                 style={styles.loginBtn}>
                 <Text style={styles.loginText}>Get Started </Text>
