@@ -38,6 +38,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginLeft: 0,
         marginRight: 'auto',
+        marginTop: 10,
         height: 45,
         width: 45,
     },
@@ -55,7 +56,7 @@ const styles = StyleSheet.create({
         borderRadius: 99
     },
     text2: {
-        color: '#4FD3DA',
+        color: '#000',
         fontSize: 25,
     },
     text1: {
