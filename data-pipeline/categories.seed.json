@@ -1,0 +1,142 @@
+[
+ {
+  "name": "Plumber",
+  "icon": "plumber.png",
+  "sort_order": 1
+ },
+ {
+  "name": "Electrician",
+  "icon": "electrician.png",
+  "sort_order": 2
+ },
+ {
+  "name": "Welder",
+  "icon": "welder.png",
+  "sort_order": 3
+ },
+ {
+  "name": "Painter",
+  "icon": "painter.png",
+  "sort_order": 4
+ },
+ {
+  "name": "Builder",
+  "icon": "wall.png",
+  "sort_order": 5
+ },
+ {
+  "name": "Guard",
+  "icon": "guard.png",
+  "sort_order": 6
+ },
+ {
+  "name": "Gardener",
+  "icon": "horticulturist.png",
+  "sort_order": 7
+ },
+ {
+  "name": "Pest Control",
+  "icon": "insecticide.png",
+  "sort_order": 8
+ },
+ {
+  "name": "Locksmith",
+  "icon": "locksmith.png",
+  "sort_order": 9
+ },
+ {
+  "name": "Roofer",
+  "icon": "roofer.png",
+  "sort_order": 10
+ },
+ {
+  "name": "IT technician",
+  "icon": "technician.png",
+  "sort_order": 11
+ },
+ {
+  "name": "Carpenter",
+  "icon": "tools.png",
+  "sort_order": 12
+ },
+ {
+  "name": "Hardware",
+  "icon": "hand-tools.png",
+  "sort_order": 13
+ },
+ {
+  "name": "AC Repairer",
+  "icon": "air-conditioner.png",
+  "sort_order": 14
+ },
+ {
+  "name": "Fridge Repairer",
+  "icon": "fridge.png",
+  "sort_order": 15
+ },
+ {
+  "name": "Cleaner",
+  "icon": "vacum-cleaner.png",
+  "sort_order": 16
+ },
+ {
+  "name": "Car Repairer",
+  "icon": "car.png",
+  "sort_order": 17
+ },
+ {
+  "name": "Bike Repairer",
+  "icon": "motorcycle.png",
+  "sort_order": 18
+ },
+ {
+  "name": "Big Vehicle Repairer",
+  "icon": "delivery.png",
+  "sort_order": 19
+ },
+ {
+  "name": "Gadgets Repairer",
+  "icon": "camera-drone.png",
+  "sort_order": 20
+ },
+ {
+  "name": "CCTV installation",
+  "icon": "cctv-camera.png",
+  "sort_order": 21
+ },
+ {
+  "name": "Mobile Repairer",
+  "icon": "mobile-app.png",
+  "sort_order": 22
+ },
+ {
+  "name": "TV Repairer",
+  "icon": "smart-tv.png",
+  "sort_order": 23
+ },
+ {
+  "name": "Solar",
+  "icon": "solar-panel.png",
+  "sort_order": 24
+ },
+ {
+  "name": "Pool Maintenance",
+  "icon": "pool-maintenance.png",
+  "sort_order": 25
+ },
+ {
+  "name": "Home renovation",
+  "icon": "renovation.png",
+  "sort_order": 26
+ },
+ {
+  "name": "Decoration",
+  "icon": "wedding-arch.png",
+  "sort_order": 27
+ },
+ {
+  "name": "Washing machine Repairer",
+  "icon": "laundry-machine.png",
+  "sort_order": 28
+ }
+]
