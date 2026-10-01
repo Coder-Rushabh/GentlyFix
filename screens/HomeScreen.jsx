@@ -1,160 +1,176 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, Image, Dimensions, TextInput, StyleSheet } from 'react-native';
+import React, { useCallback, useMemo, useState } from 'react';
+import { View, Text, FlatList, Pressable, TextInput, StyleSheet, useWindowDimensions, Keyboard, ActivityIndicator } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { useNavigation } from '@react-navigation/native';
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTheme, spacing, radius } from '../theme';
+import PressableScale from '../components/PressableScale';
+import FadeInView from '../components/FadeInView';
+import { useCategories } from '../lib/categories';
+import { categoryIconUrl } from '../lib/supabase';
+import { useUserLocation } from '../lib/location';
 
 
+const COLUMNS = 4;
+const GAP = spacing.sm;
+const TILE_HEIGHT = 104;
 
-const categories = [
-  { id: '1', name: 'Plumber', image: require('../assets/category/plumber.png') },
-  { id: '2', name: 'Electrician', image: require('../assets/category/electrician.png') },
-  { id: '3', name: 'Welder', image: require('../assets/category/welder.png') },
-  { id: '4', name: 'Painter', image: require('../assets/category/painter.png') },
-  { id: '5', name: 'Builder', image: require('../assets/category/wall.png') },
-  { id: '6', name: 'Guard', image: require('../assets/category/guard.png') },
-  { id: '7', name: 'Gardener', image: require('../assets/category/horticulturist.png') },
-  { id: '8', name: 'Pest Control', image: require('../assets/category/insecticide.png') },
-  { id: '9', name: 'Locksmith', image: require('../assets/category/locksmith.png') },
-  { id: '10', name: 'Roofer', image: require('../assets/category/roofer.png') },
-  { id: '11', name: 'IT technician', image: require('../assets/category/technician.png') },
-  { id: '12', name: 'Car Penter', image: require('../assets/category/tools.png') },
-
-  { id: '13', name: 'Hardware', image: require('../assets/category/hand-tools.png') },
-  { id: '14', name: 'AC Repairer', image: require('../assets/category/air-conditioner.png') },
-  { id: '15', name: 'Fridge Repairer', image: require('../assets/category/fridge.png') },
-  { id: '16', name: 'Cleaner', image: require('../assets/category/vacum-cleaner.png') },
-
-  { id: '17', name: 'Car Repairer', image: require('../assets/category/car.png') },
-  { id: '18', name: 'Bike Repairer', image: require('../assets/category/motorcycle.png') },
-  { id: '19', name: 'Big Vehicle Repairer', image: require('../assets/category/delivery.png') },
-  { id: '20', name: 'Gadgets Repairer', image: require('../assets/category/camera-drone.png') },
-
-  { id: '21', name: 'CCTV installation', image: require('../assets/category/cctv-camera.png') },
-  { id: '22', name: 'Mobile Repairer', image: require('../assets/category/mobile-app.png') },
-  { id: '23', name: 'TV Repairer', image: require('../assets/category/smart-tv.png') },
-  { id: '24', name: 'Solar', image: require('../assets/category/solar-panel.png') },
-
-  { id: '25', name: 'Pool Maintenance', image: require('../assets/category/pool-maintenance.png') },
-  { id: '26', name: 'Home renovation', image: require('../assets/category/renovation.png') },
-  { id: '27', name: 'Decoration', image: require('../assets/category/wedding-arch.png') },
-  { id: '28', name: 'Washing machine Repairer', image: require('../assets/category/laundry-machine.png') },
-  // Add more categories with image paths as needed
-];
-
-const screenWidth = Dimensions.get('window').width;
+const CategoryTile = React.memo(function CategoryTile({ item, width, onPress, index }) {
+  const { colors } = useTheme();
+  return (
+    <FadeInView index={index}>
+    <PressableScale
+      onPress={() => onPress(item.name)}
+      hapticOnPress
+      style={[styles.tile, { width, backgroundColor: colors.surface, borderColor: colors.border }]}
+    >
+      <View style={[styles.iconWrap, { backgroundColor: colors.tint }]}>
+        <Image source={{ uri: categoryIconUrl(item.icon) }} style={styles.icon} contentFit="contain" cachePolicy="disk" transition={150} />
+      </View>
+      <Text style={[styles.tileLabel, { color: colors.text }]} numberOfLines={2}>{item.name}</Text>
+    </PressableScale>
+    </FadeInView>
+  );
+});
 
 export default function HomeScreen() {
-  const { width: screenWidth } = Dimensions.get('window'); // Get screen width
-
-
+  const { colors } = useTheme();
   const navigation = useNavigation();
-  const [numColumns, setNumColumns] = useState(4);
+  const { label, status, mode, retry: retryLocation } = useUserLocation();
+  const { categories, loading: catLoading, refreshing, error: catError, reload, refresh } = useCategories();
+  const { width: screenWidth } = useWindowDimensions();
   const [searchText, setSearchText] = useState('');
 
-  const padding = 10;
-  const totalPadding = padding * (numColumns - 1);
-  const columnWidth = (screenWidth - totalPadding) / numColumns;
-
-  const generateKey = (item, numColumns) => {
-    return `${item.id}-${numColumns}`;
-  };
-
-  const renderItem = ({ item }) => (
-    <TouchableOpacity
-      style={{
-        width: columnWidth,
-        alignItems: 'center',
-        marginBottom: 20,
-      }}
-      onPress={() => navigation.navigate('Category', { category: item.name })}
-    >
-      <Image
-        source={item.image}
-        style={{
-          width: '50%',
-          height: columnWidth - 40,
-          resizeMode: 'contain',
-        }}
-      />
-      <Text style={{ fontSize: 13, marginTop: 5 }}>{item.name}</Text>
-    </TouchableOpacity>
+  const tileWidth = Math.floor((screenWidth - spacing.lg * 2 - GAP * (COLUMNS - 1)) / COLUMNS);
+  const query = searchText.trim().toLowerCase();
+  const data = useMemo(
+    () => (query ? categories.filter((c) => c.name.toLowerCase().includes(query)) : categories),
+    [query, categories]
   );
 
-  const handleSearch = () => {
-    navigation.navigate('Category', { category: searchText });
+  const openCategory = useCallback((name) => {
+    Keyboard.dismiss();
+    navigation.navigate('Category', { category: name });
+  }, [navigation]);
+
+  const searchByName = () => {
+    Keyboard.dismiss();
+    navigation.navigate('Category', { category: searchText.trim(), searchText: searchText.trim() });
   };
 
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
-      <View style={{ flex: 1, padding: 20 }}>
-        {/* App Title Image */}
-        <View style={styles.titleContainer}>
-          <Image source={require('../assets/1.png')} style={styles.titleImage} />
-        </View>
-        
-        {/* Search Bar */}
-        <View style={styles.searchContainer}>
-          <TextInput
-            placeholder="Search categories..."
-            value={searchText}
-            onChangeText={setSearchText}
-            style={styles.searchBar}
-            onSubmitEditing={() => handleSearch(searchText)} // Pass searchText on submit
-          />
-          <TouchableOpacity style={styles.searchButton} onPress={() => handleSearch(searchText)}>
-            <Text style={styles.searchButtonText}>Search</Text>
-          </TouchableOpacity>
-        </View>
+  const handleSubmit = () => {
+    if (!query) return;
+    if (data.length === 1) openCategory(data[0].name);
+    else if (data.length === 0) searchByName();
+  };
 
-        <FlatList
-          data={categories}
-          keyExtractor={(item) => generateKey(item, numColumns)}
-          renderItem={renderItem}
-          numColumns={numColumns}
-          columnWrapperStyle={{ justifyContent: 'space-between' }}
-          scrollEnabled={true}
-          showsVerticalScrollIndicator={false}
-        />
+  // Pull-down: reload services, and retry the GPS fix if it had failed.
+  const onRefresh = useCallback(async () => {
+    if (mode === 'gps' && status !== 'ok') retryLocation();
+    await refresh();
+  }, [mode, status, retryLocation, refresh]);
+
+  const renderItem = useCallback(
+    ({ item, index }) => <CategoryTile item={item} width={tileWidth} onPress={openCategory} index={index} />,
+    [tileWidth, openCategory]
+  );
+
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.bg }]}>
+      <View style={styles.header}>
+        <View style={styles.titleRow}>
+          <Text style={[styles.brand, { color: colors.text }]}>
+            Gently<Text style={{ color: colors.primary }}>Fix</Text>
+          </Text>
+          <Pressable onPress={() => navigation.navigate('Saved')} hitSlop={10} accessibilityLabel="Saved businesses">
+            <Ionicons name="heart-outline" size={26} color={colors.text} />
+          </Pressable>
+        </View>
+        <Pressable onPress={() => navigation.navigate('ChooseCity')} style={styles.locChip}>
+          <Ionicons name="location" size={14} color={colors.primary} />
+          <Text style={{ color: colors.textMuted, fontSize: 14 }}>
+            {status === 'denied' && label === 'Near me' ? 'Choose a location' : label}
+          </Text>
+          <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
+        </Pressable>
       </View>
+
+      <View style={[styles.search, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Ionicons name="search" size={20} color={colors.textMuted} />
+        <TextInput
+          placeholder="Search a service or business"
+          placeholderTextColor={colors.textMuted}
+          value={searchText}
+          onChangeText={setSearchText}
+          onSubmitEditing={handleSubmit}
+          returnKeyType="search"
+          style={[styles.searchInput, { color: colors.text }]}
+        />
+        {!!searchText && (
+          <Pressable onPress={() => setSearchText('')} hitSlop={10}>
+            <Ionicons name="close-circle" size={20} color={colors.textMuted} />
+          </Pressable>
+        )}
+      </View>
+
+      <FlatList
+        data={data}
+        keyExtractor={(item) => String(item.id)}
+        renderItem={renderItem}
+        numColumns={COLUMNS}
+        columnWrapperStyle={{ gap: GAP }}
+        contentContainerStyle={styles.grid}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        refreshing={refreshing}
+        onRefresh={onRefresh}
+        initialNumToRender={16}
+        windowSize={5}
+        ListFooterComponent={
+          <Pressable style={[styles.nameSearch, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => navigation.navigate('AddBusiness')}>
+            <Ionicons name="add-circle-outline" size={22} color={colors.primary} />
+            <Text style={{ color: colors.text, flex: 1 }}>Can’t find a business? Add it</Text>
+            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+          </Pressable>
+        }
+        ListHeaderComponent={!query ? <Text style={[styles.section, { color: colors.text }]}>Browse services</Text> : null}
+        ListEmptyComponent={
+          catLoading ? (
+            <ActivityIndicator style={{ marginTop: spacing.xl }} color={colors.primary} />
+          ) : catError ? (
+            <Pressable style={[styles.nameSearch, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={reload}>
+              <Ionicons name="cloud-offline-outline" size={22} color={colors.primary} />
+              <Text style={{ color: colors.text, flex: 1 }}>Could not load services. Tap to retry.</Text>
+            </Pressable>
+          ) : !query ? (
+            <Text style={{ color: colors.textMuted, textAlign: 'center', marginTop: spacing.xl }}>No services available yet.</Text>
+            ) : (
+            <Pressable style={[styles.nameSearch, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={searchByName}>
+              <Ionicons name="business-outline" size={22} color={colors.primary} />
+              <Text style={{ color: colors.text, flex: 1 }}>Search businesses named “{searchText.trim()}”</Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            </Pressable>
+          )
+        }
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    alignItems: 'center', 
-    marginBottom: 10// Center the image horizontally
-  },
-  titleImage: {
-    width: screenWidth * 0.8, // 80% of the screen width
-    height: 50, // Fixed height, adjust as needed
-    resizeMode: 'contain', // Maintain aspect ratio
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20, // Space below search bar
-  },
-  searchBar: {
-    flex: 1,
-    borderColor: '#ddd',
-    borderWidth: 1,
-    borderRadius: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    height: 40, // Set height for the input box
-  },
-  searchButton: {
-    backgroundColor: '#007BFF', // Blue color for the button
-    paddingHorizontal: 16,
-    borderRadius: 5,
-    marginLeft: 10,
-    height: 40, // Match the height of the input box
-    justifyContent: 'center', // Center text vertically
-    alignItems: 'center', // Center text horizontally
-  },
-  searchButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-  },
+  container: { flex: 1 },
+  header: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.md },
+  brand: { fontSize: 34, fontFamily: 'serif', fontWeight: '600', letterSpacing: -0.5 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  locChip: { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', marginTop: 4 },
+  search: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginHorizontal: spacing.lg, paddingHorizontal: spacing.md, height: 48, borderRadius: radius.pill, borderWidth: 1 },
+  searchInput: { flex: 1, fontSize: 15, paddingVertical: 0 },
+  grid: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl },
+  section: { fontSize: 18, fontWeight: '700', marginTop: spacing.lg, marginBottom: spacing.md },
+  tile: { height: TILE_HEIGHT, marginBottom: GAP, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', paddingTop: spacing.sm, paddingHorizontal: 4, overflow: 'hidden' },
+  iconWrap: { width: 52, height: 52, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
+  icon: { width: 34, height: 34, resizeMode: 'contain' },
+  tileLabel: { fontSize: 11.5, fontWeight: '500', textAlign: 'center', marginTop: 6 },
+  nameSearch: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.lg, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, marginTop: spacing.lg },
 });

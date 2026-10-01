@@ -1,257 +1,216 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, ActivityIndicator, ScrollView, StyleSheet, Alert, TouchableOpacity, Image } from 'react-native';
-import * as Location from 'expo-location';
-import axios from 'axios';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { View, Text, FlatList, Pressable, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import Icon from 'react-native-vector-icons/FontAwesome';
-import { SafeAreaView } from "react-native-safe-area-context";
+import { fetchNearby, searchBusinesses } from '../lib/supabase';
+import { readCache, writeCache } from '../lib/cache';
+import { useUserLocation } from '../lib/location';
+import { haptic } from '../lib/motion';
+import BusinessCard, { CARD_HEIGHT } from '../components/BusinessCard';
+import SkeletonList from '../components/Skeleton';
+import FilterBar from '../components/FilterBar';
+import BusinessMap from '../components/BusinessMap';
+import EmptyState from '../components/EmptyState';
+import Animation from '../components/Animation';
+import FadeInView from '../components/FadeInView';
+import { useTheme, spacing, radius } from '../theme';
 
+const ROW = CARD_HEIGHT + spacing.sm;
+const NO_FILTERS = { requirePhone: false, radiusM: null };
+const ANIM = {
+  loading: require('../assets/animations/loading.json'),
+  empty: require('../assets/animations/empty.json'),
+  offline: require('../assets/animations/offline.json'),
+  location: require('../assets/animations/location.json'),
+};
 
-const apiKeys = [
-  '0db6ee2512msh7a4ac6954790325p19322fjsne9c98a9ad7da', // Replace with your actual RapidAPI keys
-];
+export default function CategoryScreen() {
+  const { colors } = useTheme();
+  const navigation = useNavigation();
+  const { category, searchText } = useRoute().params;
+  const { coords, status: locStatus, label, retry: retryLocation } = useUserLocation();
+  const lat = coords?.lat;
+  const lng = coords?.lng;
 
-const CACHE_EXPIRATION_DAYS = 30;
-const CACHE_KEY_PREFIX = 'businesses_';
-
-const CategoryScreen = () => {
   const [businesses, setBusinesses] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [location, setLocation] = useState(null);
-  const navigation = useNavigation();
-  const route = useRoute();
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null); // { kind: 'location' | 'network', message }
+  const [filters, setFilters] = useState(NO_FILTERS);
+  const [view, setView] = useState('list');
+  const [selectedId, setSelectedId] = useState(null);
+  const nearMe = !searchText;
+  const requestId = useRef(0);
+  const filtered = filters.requirePhone || filters.radiusM;
 
-  const { category } = route.params;
-
-  useEffect(() => {
-    const fetchLocationAndBusinesses = async () => {
-      // Request location permission
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission denied', 'Location permission is required to fetch businesses.');
-        setLoading(false);
+  const load = useCallback(async ({ pull = false } = {}) => {
+    if (locStatus === 'loading') return; // wait for the location to resolve
+    const id = ++requestId.current;
+    const live = () => id === requestId.current;
+    if (pull) setRefreshing(true); else setLoading(true);
+    setError(null);
+    try {
+      if (searchText) {
+        const rows = await searchBusinesses(searchText, lat, lng);
+        if (live()) setBusinesses(rows);
         return;
       }
-
-      // Get the current location
-      let location = await Location.getCurrentPositionAsync({});
-      setLocation(location.coords);
-
-      // Check if we have cached data for the selected category
-      const cachedData = await getCachedData(category);
-      if (cachedData) {
-        setBusinesses(cachedData);
-        setLoading(false);
+      if (lat == null) {
+        if (live()) setError(locStatus === 'denied'
+          ? { kind: 'location', message: 'Location permission is off. Choose a city instead, or enable location in Settings.' }
+          : { kind: 'location', message: 'We could not determine your location. Choose a city or try again.' });
         return;
       }
-
-      // Function to fetch businesses with a given API key and a timeout
-      const fetchWithApiKey = async (apiKey) => {
-        try {
-          // Create a promise that rejects after 2 seconds
-          const timeout = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Request timed out')), 2000)
-          );
-
-          // Race between the API call and the timeout
-          const response = await Promise.race([
-            axios.get(
-              'https://local-business-data.p.rapidapi.com/search-nearby',
-              {
-                params: {
-                  query: category,
-                  lat: location.coords.latitude,
-                  lng: location.coords.longitude,
-                  limit: 1,
-                  language: 'en',
-                  region: 'us',
-                  extract_emails_and_contacts: false,
-                },
-                headers: {
-                  'X-RapidAPI-Host': 'local-business-data.p.rapidapi.com',
-                  'X-RapidAPI-Key': apiKey,
-                },
-              }
-            ),
-            timeout
-          ]);
-
-          // Cache the result and return success
-          await cacheData(category, response.data.data);
-          setBusinesses(response.data.data);
-          setLoading(false);
-          return true; // API key worked
-        } catch (err) {
-          if (err.response && err.response.status === 403) {
-            return false; // API key failed
-          } else if (err.message === 'Request timed out') {
-            return false; // Request timed out
-          } else {
-            throw err; // Other errors
-          }
-        }
-      };
-
-      // Try each API key until one works
-      for (const apiKey of apiKeys) {
-        const success = await fetchWithApiKey(apiKey);
-        if (success) break;
+      // Cache only the default (unfiltered) view; filtered views are cheap and should always be live.
+      const cached = pull || filtered ? null : await readCache(category, lat, lng);
+      if (cached && live()) {
+        setBusinesses(cached.data);
+        setLoading(false);
+        if (cached.fresh) return;
       }
-
-      setLoading(false);
-    };
-
-    fetchLocationAndBusinesses();
-  }, [category]);
-
-  const getCachedData = async (category) => {
-    const cacheKey = `${CACHE_KEY_PREFIX}${category}`;
-    const cachedItem = await AsyncStorage.getItem(cacheKey);
-    if (cachedItem) {
-      const { timestamp, data } = JSON.parse(cachedItem);
-      const now = new Date();
-      const cacheAgeDays = (now - new Date(timestamp)) / (1000 * 60 * 60 * 24);
-      if (cacheAgeDays <= CACHE_EXPIRATION_DAYS) {
-        return data;
-      } else {
-        await AsyncStorage.removeItem(cacheKey); // Remove expired cache
+      const rows = await fetchNearby(lat, lng, category, filters);
+      if (!live()) return;
+      setBusinesses(rows);
+      if (!filtered) writeCache(category, lat, lng, rows);
+    } catch {
+      if (live()) setError({ kind: 'network', message: 'Could not load businesses. Check your connection and try again.' });
+    } finally {
+      if (live()) {
+        setLoading(false);
+        setRefreshing(false);
       }
     }
-    return null;
-  };
+  }, [category, searchText, lat, lng, locStatus, filters, filtered]);
 
-  const cacheData = async (category, data) => {
-    const cacheKey = `${CACHE_KEY_PREFIX}${category}`;
-    const timestamp = new Date().toISOString();
-    const cachedItem = JSON.stringify({ timestamp, data });
-    await AsyncStorage.setItem(cacheKey, cachedItem);
-  };
+  useEffect(() => { load(); }, [load]);
 
-  const handleItemPress = (business) => {
-    navigation.navigate('BusinessDetails', { business });
-  };
+  useLayoutEffect(() => {
+    if (!nearMe || !businesses.length) { navigation.setOptions({ headerRight: undefined }); return; }
+    navigation.setOptions({
+      headerRight: () => (
+        <Pressable onPress={() => { haptic.tap(); setSelectedId(null); setView((v) => (v === 'list' ? 'map' : 'list')); }} hitSlop={10} accessibilityLabel="Toggle map">
+          <Ionicons name={view === 'list' ? 'map-outline' : 'list-outline'} size={24} color={colors.text} />
+        </Pressable>
+      ),
+    });
+  }, [navigation, nearMe, businesses.length, view, colors.text]);
+
+  const openBusiness = useCallback((business) => navigation.navigate('BusinessDetails', { business }), [navigation]);
+  const renderItem = useCallback(({ item, index }) => <BusinessCard item={item} onPress={openBusiness} index={index} />, [openBusiness]);
+  const selected = businesses.find((b) => b.id === selectedId);
+
+  const header = (
+    <View style={styles.headerBlock}>
+      <Text style={[styles.title, { color: colors.text }]}>
+        {searchText ? `Results for “${searchText}”` : `${category} near you`}
+      </Text>
+      {nearMe && (
+        <Pressable onPress={() => navigation.navigate('ChooseCity')} style={styles.locRow}>
+          <Ionicons name="location" size={14} color={colors.primary} />
+          <Text style={{ color: colors.textMuted, fontSize: 13 }}>{label} · Change</Text>
+        </Pressable>
+      )}
+      {!loading && !error && businesses.length > 0 && (
+        <Text style={[styles.count, { color: colors.textMuted }]}>{businesses.length} found</Text>
+      )}
+      {nearMe && <View style={{ height: spacing.md }} />}
+      {nearMe && <FilterBar filters={filters} onChange={(f) => { haptic.tap(); setFilters(f); }} />}
+    </View>
+  );
+
+  // Waiting for GPS / city: friendly "locating" animation.
+  if (loading && locStatus === 'loading' && nearMe) {
+    return (
+      <View style={[styles.centered, { backgroundColor: colors.bg }]}>
+        <Animation source={ANIM.loading} size={220} />
+        <Text style={[styles.locating, { color: colors.textMuted }]}>Finding {category.toLowerCase()} near you…</Text>
+      </View>
+    );
+  }
 
   if (loading) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#0000ff" />
+      <View style={[styles.container, { backgroundColor: colors.bg }]}>
+        {header}
+        <SkeletonList />
       </View>
     );
   }
 
-  if (error) {
+  if (view === 'map' && businesses.length && coords) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.errorText}>Error loading data</Text>
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+        <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
+          <FilterBar filters={filters} onChange={(f) => { haptic.tap(); setFilters(f); }} />
+        </View>
+        <BusinessMap businesses={businesses} center={coords} onSelect={(id) => { haptic.light(); setSelectedId(id); }} />
+        {!!selected && (
+          <FadeInView key={selected.id} from={40} duration={260} style={styles.mapCard}>
+            <BusinessCard item={selected} onPress={openBusiness} />
+          </FadeInView>
+        )}
       </View>
     );
   }
-  const renderRatingStars = (rating) => {
-    const fullStars = Math.floor(rating);
-    const hasHalfStar = rating % 1 !== 0;
-    const totalStars = 5;
 
-    return (
-      <View style={styles.ratingContainer}>
-        {Array.from({ length: totalStars }, (_, index) => {
-          if (index < fullStars) {
-            return <Icon key={index} name="star" size={16} color="#f5f11b" style={styles.star} />;
-          }
-          if (index === fullStars && hasHalfStar) {
-            return <Icon key={index} name="star-half-o" size={16} color="#f5f11b" style={styles.star} />;
-          }
-          return <Icon key={index} name="star" size={16} color="gray" style={styles.star} />;
-        })}
-        <Text style={styles.ratingText}>{rating.toFixed(1)}</Text>
+  const emptyBlock = error ? (
+    <EmptyState
+      animation={error.kind === 'location' ? ANIM.location : ANIM.offline}
+      title={error.kind === 'location' ? 'Where are you?' : 'You seem to be offline'}
+      message={error.message}
+    >
+      <View style={styles.actions}>
+        {nearMe && error.kind === 'location' && (
+          <Pressable style={[styles.retry, { backgroundColor: colors.primary }]} onPress={() => navigation.navigate('ChooseCity')}>
+            <Text style={{ color: colors.onPrimary, fontWeight: '700' }}>Choose a city</Text>
+          </Pressable>
+        )}
+        <Pressable style={[styles.retry, { borderWidth: 1.5, borderColor: colors.primary }]} onPress={() => (locStatus === 'ok' ? load() : retryLocation())}>
+          <Text style={{ color: colors.primary, fontWeight: '700' }}>Try again</Text>
+        </Pressable>
       </View>
-    );
-  };
+    </EmptyState>
+  ) : (
+    <EmptyState
+      animation={ANIM.empty}
+      title="Nothing here yet"
+      message={nearMe
+        ? (filtered ? 'No businesses match these filters. Try widening the distance.' : 'No businesses found within 100 km yet. We’re adding more every day.')
+        : 'No businesses match that search.'}
+    />
+  );
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-        <Text style={styles.header}>{category}s in your area!</Text>
-        {businesses.map((item, index) => (
-          <TouchableOpacity key={index} style={styles.itemContainer} onPress={() => handleItemPress(item)}>
-            <Image
-              source={{ uri: item.photos_sample[0]?.photo_url }}
-              style={styles.image}
-            />
-            <View style={styles.textContainer}>
-              <Text style={styles.businessName}>{item.name}</Text>
-              <Text style={styles.businessDetails}>{item.address}</Text>
-              <Text style={styles.businessDetails}>{item.phone_number}</Text>
-              {renderRatingStars(item.rating)}
-            </View>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-    </SafeAreaView>
+    <FlatList
+      style={{ backgroundColor: colors.bg }}
+      contentContainerStyle={styles.container}
+      data={businesses}
+      keyExtractor={(item) => item.id}
+      renderItem={renderItem}
+      getItemLayout={(_, index) => ({ length: ROW, offset: ROW * index, index })}
+      initialNumToRender={10}
+      maxToRenderPerBatch={10}
+      windowSize={7}
+      removeClippedSubviews
+      refreshing={refreshing}
+      onRefresh={() => load({ pull: true })}
+      showsVerticalScrollIndicator={false}
+      ListHeaderComponent={header}
+      ListEmptyComponent={<View style={styles.empty}>{emptyBlock}</View>}
+    />
   );
-};
+}
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 16,
-    backgroundColor: '#F5F5F5',
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#fff', // Optional: Set background color if needed
-  },
-  header: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 16,
-    color: '#333',
-  },
-  itemContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#FFF',
-    borderRadius: 8,
-    marginBottom: 16,
-    overflow: 'hidden',
-    elevation: 2,
-  },
-  image: {
-    width: 100,
-    height: 100,
-    borderRadius: 8,
-  },
-  textContainer: {
-    flex: 1,
-    padding: 12,
-    justifyContent: 'center',
-  },
-  businessName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 4,
-  },
-  businessDetails: {
-    fontSize: 14,
-    color: '#555',
-    marginBottom: 2,
-  },
-  ratingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 4,
-  },
-  star: {
-    marginRight: 2, // Space between stars
-  },
-  ratingText: {
-    fontSize: 14,
-    color: '#000',
-    marginLeft: 8,
-  },
+  container: { flexGrow: 1, paddingHorizontal: spacing.lg, paddingBottom: spacing.xl },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  locating: { fontSize: 15, marginTop: spacing.sm },
+  headerBlock: { paddingTop: spacing.md },
+  title: { fontSize: 22, fontWeight: '700' },
+  locRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4, alignSelf: 'flex-start' },
+  count: { fontSize: 13, marginTop: 2 },
+  empty: { marginTop: spacing.xl },
+  actions: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm },
+  retry: { paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderRadius: radius.pill },
+  mapCard: { position: 'absolute', left: spacing.lg, right: spacing.lg, bottom: spacing.lg },
 });
-
-export default CategoryScreen;
